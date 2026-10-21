@@ -35,7 +35,7 @@ function publicState(room, token) {
   return {
     code:room.code, phase:room.phase, round:room.round,
     isHost:me.token === room.hostToken, me:{id:me.id, name:me.name, alive:me.alive},
-    players:room.players.map(p=>({id:p.id,name:p.name,alive:p.alive,hasVoted:!!p.vote})),
+    players:room.players.map(p=>({id:p.id,name:p.name,alive:p.alive,hasVoted:room.isDuel && room.phase==='duel_guess' ? p.guess!==null : p.vote!==null})),
     maxPlayers:room.capacity, minPlayers:MIN_PLAYERS, activeCount:counts, isDuel:room.isDuel,
     prompt:(room.phase !== 'lobby' && me.alive && room.phase !== 'finished') ? (me.id === room.spyId ? room.pair.spy : room.pair.common) :
       (room.phase === 'finished' && me.alive ? (me.id === room.spyId ? room.pair.spy : room.pair.common) : null),
