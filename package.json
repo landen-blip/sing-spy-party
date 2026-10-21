@@ -1,0 +1,9 @@
+{
+  "name":"sing-spy-party",
+  "version":"1.0.0",
+  "private":true,
+  "description":"五人实时联机歌曲版谁是卧底",
+  "scripts":{"start":"node server.js","test":"node --test"},
+  "engines":{"node":">=18"},
+  "license":"MIT"
+}
