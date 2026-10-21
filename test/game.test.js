@@ -60,8 +60,8 @@ test('Host-only actions, self-vote ban and server-side privacy',async()=>{
   const cp=await startServer();
   try{
     const h=await post('create',{name:'主持人'});
-    const b=await post('join',{code:h.code,name:'路人'});
     await post('start',h,400);
+    const b=await post('join',{code:h.code,name:'路人'});
     await post('open-vote',b,403);
     await post('vote',{...b,target:1},400);
     const st=await state(b);
@@ -96,5 +96,109 @@ test('SSE pushes new room state to other connected players',async()=>{
     await post('join',{code:host.code,name:'Second'});
     assert.equal((await getMessage()).players.length,2);
     await reader.cancel();
+  }finally{cp.kill();}
+});
+
+test('2-player duel gives four private choices and finishes after two valid guesses',async()=>{
+  const cp=await startServer();
+  try{
+    const host=await post('create',{name:'Host',capacity:2});
+    const other=await post('join',{code:host.code,name:'Guest'});
+    await post('join',{code:host.code,name:'TooLate'},400);
+    await post('start',host);
+    const [h,g]=await Promise.all([state(host),state(other)]);
+    assert.equal(h.isDuel,true);
+    assert.equal(h.maxPlayers,2);
+    assert.equal(h.phase,'sing');
+    assert.notEqual(h.prompt,g.prompt);
+    assert.equal(h.duelChoices,null);
+    await post('open-vote',host);
+    const [hv,gv]=await Promise.all([state(host),state(other)]);
+    assert.equal(hv.phase,'duel_guess');
+    assert.equal(hv.duelChoices.length,4);
+    assert.equal(gv.duelChoices.length,4);
+    assert.equal(new Set(hv.duelChoices).size,4);
+    assert.ok(hv.duelChoices.includes(g.prompt));
+    assert.ok(gv.duelChoices.includes(h.prompt));
+    assert.equal(hv.reveal,null);
+    await post('vote',{...host,target:2},400);
+    await post('guess',{...host,choice:4},400);
+    await post('guess',{...host,choice:hv.duelChoices.indexOf(g.prompt)});
+    await post('guess',{...host,choice:0},400);
+    assert.equal((await state(host)).phase,'duel_guess');
+    const wrong=gv.duelChoices.findIndex(x=>x!==h.prompt);
+    await post('guess',{...other,choice:wrong});
+    const finished=await state(host);
+    assert.equal(finished.phase,'finished');
+    assert.equal(finished.winner,'duel');
+    assert.deepEqual(finished.duelResult.correctIds,[1]);
+    assert.equal(finished.duelResult.winnerId,1);
+    assert.equal(finished.reveal,null);
+    assert.equal(finished.players.every(p=>p.alive),true);
+    await post('restart',host);
+    const next=await state(other);
+    assert.equal(next.phase,'sing');
+    assert.equal(next.isDuel,true);
+    assert.equal(next.reveal,null);
+  }finally{cp.kill();}
+});
+
+test('Room size configurable from 2 to 10, starts early, rejects overflow',async()=>{
+  const cp=await startServer();
+  try{
+    await post('create',{name:'tooSmall',capacity:1},400);
+    await post('create',{name:'tooLarge',capacity:11},400);
+    await post('create',{name:'invalid',capacity:2.5},400);
+    for(const capacity of [3,4,6,8,10]){
+      const host=await post('create',{name:'P1',capacity});
+      const players=[host];
+      for(let i=2;i<=capacity;i++)players.push(await post('join',{code:host.code,name:'P'+i}));
+      const full=await state(host);
+      assert.equal(full.maxPlayers,capacity);
+      assert.equal(full.players.length,capacity);
+      assert.deepEqual(full.players.map(p=>p.id),Array.from({length:capacity},(_,i)=>i+1));
+      await post('join',{code:host.code,name:'Overflow'},400);
+      await post('start',host);
+      const sts=await Promise.all(players.map(state));
+      assert.ok(sts.every(s=>s.phase==='sing' && s.isDuel===false));
+      const freq=new Map();sts.forEach(s=>freq.set(s.prompt,(freq.get(s.prompt)||0)+1));
+      assert.deepEqual([...freq.values()].sort((a,b)=>a-b),[1,capacity-1]);
+      assert.ok(sts.every(s=>s.reveal===null && !('spyId' in s)));
+      await post('open-vote',host);
+      const voteStates=await Promise.all(players.map(state));
+      assert.ok(voteStates.every(s=>s.phase==='voting'));
+    }
+    const earlyHost=await post('create',{name:'EarlyHost',capacity:10});
+    const guest=await post('join',{code:earlyHost.code,name:'EarlyGuest'});
+    const third=await post('join',{code:earlyHost.code,name:'Third'});
+    await post('start',earlyHost);
+    const sts=await Promise.all([earlyHost,guest,third].map(state));
+    assert.equal(sts[0].isDuel,false);
+    assert.equal(sts[0].players.length,3);
+    await post('join',{code:earlyHost.code,name:'late'},400);
+  }finally{cp.kill();}
+});
+
+test('3-player civilians lose when a civilian is eliminated, game stays private',async()=>{
+  const cp=await startServer();
+  try{
+    const host=await post('create',{name:'A',capacity:3});
+    const guests=[await post('join',{code:host.code,name:'B'}),await post('join',{code:host.code,name:'C'})];
+    const sessions=[host,...guests];
+    await post('start',host);
+    const st=await Promise.all(sessions.map(state));
+    const freq=new Map();st.forEach(s=>freq.set(s.prompt,(freq.get(s.prompt)||0)+1));
+    const spy=st.find(s=>freq.get(s.prompt)===1).me.id;
+    const civilian=st.find(s=>s.me.id!==spy).me.id;
+    await post('open-vote',host);
+    for(let i=0;i<3;i++){
+      let target=civilian;
+      if(st[i].me.id===civilian)target=(civilian%3)+1;
+      await post('vote',{...sessions[i],target});
+    }
+    const end=await state(host);
+    assert.equal(end.phase,'finished');
+    assert.equal(end.winner,'spy');
+    assert.equal(end.reveal,null);
   }finally{cp.kill();}
 });

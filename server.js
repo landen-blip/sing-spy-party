@@ -5,7 +5,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 3000;
-const MAX_PLAYERS = 5;
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 10;
 const ROOM_TTL = 12 * 60 * 60 * 1000;
 const rooms = new Map();
 const PAIRS = require('./scenarios.json');
@@ -35,10 +36,13 @@ function publicState(room, token) {
     code:room.code, phase:room.phase, round:room.round,
     isHost:me.token === room.hostToken, me:{id:me.id, name:me.name, alive:me.alive},
     players:room.players.map(p=>({id:p.id,name:p.name,alive:p.alive,hasVoted:!!p.vote})),
-    maxPlayers:MAX_PLAYERS, activeCount:counts,
+    maxPlayers:room.capacity, minPlayers:MIN_PLAYERS, activeCount:counts, isDuel:room.isDuel,
     prompt:(room.phase !== 'lobby' && me.alive && room.phase !== 'finished') ? (me.id === room.spyId ? room.pair.spy : room.pair.common) :
       (room.phase === 'finished' && me.alive ? (me.id === room.spyId ? room.pair.spy : room.pair.common) : null),
     myVote:me.vote, eligible:room.voteChoices || null,
+    duelChoices:room.isDuel && room.phase === 'duel_guess' ? me.duelChoices : null,
+    myGuess:room.isDuel ? me.guess : null,
+    duelResult:room.isDuel && room.phase === 'finished' ? room.duelResult : null,
     lastResult:room.lastResult,
     winner:room.winner,
     reveal:room.revealed ? {spyId:room.spyId, common:room.pair.common, spy:room.pair.spy} : null,
@@ -58,6 +62,14 @@ function auth(payload) {
   if (!me) failure('身份无效，请使用原来的设备或重新进入。', 403);
   return {room,me};
 }
+function shuffled(values) {
+  const arr = [...values];
+  for(let i=arr.length-1;i>0;i--) {
+    const j=crypto.randomInt(i+1);
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
 function resetGame(room) {
   const pairCandidates = PAIRS.map((_, i)=>i).filter(i=>i !== room.lastPairIndex);
   const pairIndex = pairCandidates[crypto.randomInt(pairCandidates.length)];
@@ -65,7 +77,19 @@ function resetGame(room) {
   room.pair = PAIRS[pairIndex];
   const spy = room.players[crypto.randomInt(room.players.length)];
   room.spyId = spy.id;
-  room.players.forEach(p=>{p.alive=true;p.vote=null;});
+  room.isDuel = room.players.length === 2;
+  room.duelResult = null;
+  room.players.forEach(p=>{p.alive=true;p.vote=null;p.guess=null;p.duelChoices=null;});
+  if(room.isDuel) {
+    const allScenes = [...new Set(PAIRS.flatMap(pair=>[pair.common,pair.spy]))];
+    for(const p of room.players) {
+      const other = room.players.find(other=>other.id!==p.id);
+      const correct = other.id===room.spyId ? room.pair.spy : room.pair.common;
+      const myScene = p.id===room.spyId ? room.pair.spy : room.pair.common;
+      const distractors = shuffled(allScenes.filter(scene=>scene!==correct && scene!==myScene)).slice(0,3);
+      p.duelChoices = shuffled([correct,...distractors]);
+    }
+  }
   room.round = 1;
   room.voteChoices = null;
   room.phase = 'sing';
@@ -133,7 +157,9 @@ const server = http.createServer(async (req,res)=>{
       if(rooms.size>=1000)failure('当前房间太多，请稍后再试。',503);
       let id;do{id=code();}while(rooms.has(id));
       const token=crypto.randomBytes(24).toString('hex');
-      const room={code:id,players:[{id:1,name,alive:true,token,vote:null}],hostToken:token,phase:'lobby',round:0,subscribers:new Set(),pair:null,spyId:null,lastPairIndex:-1,roundsPlayed:0,lastResult:null,voteChoices:null,winner:null,revealed:false,updatedAt:Date.now()};
+      const capacity = payload.capacity === undefined ? 5 : Number(payload.capacity);
+      if(!Number.isInteger(capacity) || capacity < MIN_PLAYERS || capacity > MAX_PLAYERS)failure('房间人数必须设置为2到10人。');
+      const room={code:id,capacity,players:[{id:1,name,alive:true,token,vote:null,guess:null}],hostToken:token,phase:'lobby',round:0,subscribers:new Set(),pair:null,spyId:null,isDuel:false,duelResult:null,lastPairIndex:-1,roundsPlayed:0,lastResult:null,voteChoices:null,winner:null,revealed:false,updatedAt:Date.now()};
       rooms.set(id,room);reply(res,200,{code:id,token});return;
     }
     if(url.pathname==='/api/join') {
@@ -142,25 +168,40 @@ const server = http.createServer(async (req,res)=>{
       const room=rooms.get(id);
       if(!room)failure('找不到房间，请核对房间号。',404);
       if(room.phase!=='lobby')failure('游戏已经开始，不能中途加入。');
-      if(room.players.length>=MAX_PLAYERS)failure('房间已经满员。');
+      if(room.players.length>=room.capacity)failure('房间已经满员。');
       if(room.players.some(p=>p.name.toLowerCase()===name.toLowerCase()))failure('昵称重复，换一个试试。');
       const token=crypto.randomBytes(24).toString('hex');
       const taken = new Set(room.players.map(p=>p.id));
       let idNum=1;while(taken.has(idNum))idNum++;
-      room.players.push({id:idNum,name,alive:true,token,vote:null});
+      room.players.push({id:idNum,name,alive:true,token,vote:null,guess:null});
       dispatch(room);reply(res,200,{code:id,token});return;
     }
     const {room,me}=auth(payload);
     if(url.pathname==='/api/start') {
       requireHost(room,me);
-      if(room.phase!=='lobby' || room.players.length!==MAX_PLAYERS)failure('需要5名玩家到齐才能开始。');
+      if(room.phase!=='lobby' || room.players.length<MIN_PLAYERS || room.players.length>room.capacity)failure('需要至少2名玩家才能开始，且不能超过房间人数上限。');
       resetGame(room);
     } else if(url.pathname==='/api/open-vote') {
       requireHost(room,me);
       if(room.phase!=='sing')failure('现在还不能开启投票。');
-      room.phase='voting';room.players.forEach(p=>p.vote=null);
+      room.phase=room.isDuel?'duel_guess':'voting';room.players.forEach(p=>{p.vote=null;p.guess=null;});
+    } else if(url.pathname==='/api/guess') {
+      if(!room.isDuel || room.phase!=='duel_guess')failure('当前不是双人猜情景阶段。');
+      if(me.guess!==null)failure('你已经提交过猜测啦。');
+      const choice=Number(payload.choice);
+      if(!Number.isInteger(choice) || choice<0 || choice>=me.duelChoices.length)failure('请选择一个有效的情景选项。');
+      me.guess=choice;
+      if(room.players.every(p=>p.guess!==null)) {
+        const correctIds=room.players.filter(p=> {
+          const other=room.players.find(other=>other.id!==p.id);
+          const correct=other.id===room.spyId ? room.pair.spy : room.pair.common;
+          return p.duelChoices[p.guess]===correct;
+        }).map(p=>p.id);
+        room.duelResult={correctIds, winnerId:correctIds.length===1?correctIds[0]:null, draw:correctIds.length!==1};
+        room.phase='finished';room.winner='duel';
+      }
     } else if(url.pathname==='/api/vote') {
-      if(!['voting','tie'].includes(room.phase))failure('当前不是投票阶段。');
+      if(room.isDuel || !['voting','tie'].includes(room.phase))failure('当前不是投票阶段。');
       if(!me.alive)failure('你已被淘汰，不能参与投票。');
       if(me.vote)failure('你已经投过票啦。');
       const target=Number(payload.target);
@@ -176,7 +217,7 @@ const server = http.createServer(async (req,res)=>{
     } else if(url.pathname==='/api/restart') {
       requireHost(room,me);
       if(room.phase!=='finished')failure('本局尚未结束。');
-      if(room.players.length!==MAX_PLAYERS)failure('需要5名玩家。');
+      if(room.players.length<MIN_PLAYERS || room.players.length>room.capacity)failure('需要2到房间人数上限名玩家。');
       resetGame(room);
     } else if(url.pathname==='/api/reveal') {
       requireHost(room,me);
