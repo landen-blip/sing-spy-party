@@ -60,7 +60,32 @@ function copyShare(){const shareUrl=`${location.origin}/?room=${encodeURICompone
 function renderLanding(){
   const initialCode=new URLSearchParams(location.search).get('room')||'';
   const options=Array.from({length:MAX_PLAYERS-MIN_PLAYERS+1},(_,i)=>i+MIN_PLAYERS).map(n=>`<option value="${n}" ${n===5?'selected':''}>${n} 人</option>`).join('');
-  root.innerHTML=`<div class="hero"><span class="eyebrow">🎤 2–10 PLAYER LIVE PARTY GAME</span><h1>用一首歌<br><span class="gradient-text">找出卧底。</span></h1><p class="lead">不再轮流传手机。2–10人各自用手机进入同一房间，秘密情景即时发送，歌曲对决，实时投票。双人局为特别互猜模式。</p></div><div class="entry"><div class="panel"><div class="switch"><button data-action="mode-create" class="${mode==='create'?'active':''}">✨ 创建房间</button><button data-action="mode-join" class="${mode==='join'?'active':''}">🚪 加入房间</button></div><form id="entry-form"><div class="field"><label for="nickname">你的昵称</label><input id="nickname" maxlength="16" required autocomplete="nickname" placeholder="例如：麦霸一号" /></div>${mode==='join'?`<div class="field"><label for="roomcode">5位房间号</label><input id="roomcode" maxlength="5" required autocapitalize="characters" style="text-transform:uppercase;letter-spacing:4px;font-weight:850" value="${esc(initialCode)}" placeholder="ABCDE" /></div>`:`<div class="field"><label for="capacity">房间人数上限（2–10人）</label><select id="capacity">${options}</select><div class="small" style="margin-top:7px">至少2人即可开局，不必等到满员；3–10人是经典卧底局。</div></div>`}<button type="submit" class="btn primary full">${mode==='create'?'🎤 创建游戏房间':'🎶 加入游戏房间'} →</button></form></div><div class="mini-info"><span>🔒 私密发题</span><span>🗳️ 实时投票</span><span>🕵️ 身份保密</span></div></div>`;
+  root.innerHTML=`<div class="landing">
+    <section class="hero" aria-label="游戏介绍">
+      <span class="eyebrow">VOL. 01 &nbsp; / &nbsp; MUSIC × MYSTERY</span>
+      <h1>今晚，<br>谁在<span class="gradient-text">唱谎？</span></h1>
+      <p class="lead">每个人都有一段秘密情景，用一首歌讲出来。听懂旋律里的暗号，找出那个与众不同的人。</p>
+      <div class="hero-bottom" aria-hidden="true">
+        <div class="vinyl"><span class="vinyl-center">♪</span></div>
+        <div><div class="hero-side-note">DROP THE BEAT.<br>KEEP THE SECRET.<br>FIND THE SPY.</div><div class="sound-waves">${[18,35,27,48,22,42,30,55,25,39,19].map((h,i)=>`<i style="--h:${h}px;--d:${i*.09}s"></i>`).join('')}</div></div>
+      </div>
+    </section>
+    <section class="entry" aria-label="开始游戏">
+      <div class="panel">
+        <div class="entry-kicker">✳ &nbsp; READY TO PLAY?</div>
+        <h2 class="entry-title">下一首，轮到你。</h2>
+        <p class="entry-desc">2–10 人在线开局，2 人可玩特别对唱模式。</p>
+        <div class="switch" role="group" aria-label="选择进房方式"><button data-action="mode-create" type="button" aria-pressed="${mode==='create'}" class="${mode==='create'?'active':''}">创建房间</button><button data-action="mode-join" type="button" aria-pressed="${mode==='join'}" class="${mode==='join'?'active':''}">加入房间</button></div>
+        <form id="entry-form">
+          <div class="field"><label for="nickname">玩家昵称</label><input id="nickname" maxlength="16" required autocomplete="nickname" placeholder="给自己起个有趣的名字" /></div>
+          ${mode==='join'?`<div class="field"><label for="roomcode">房间邀请码</label><input id="roomcode" maxlength="5" required autocapitalize="characters" style="text-transform:uppercase;letter-spacing:4px;font-weight:850" value="${esc(initialCode)}" placeholder="输入5位房间号" /></div>`:`<div class="field"><label for="capacity">房间人数上限</label><select id="capacity">${options}</select><div class="small" style="margin-top:7px">至少 2 人即可开局，3–10 人为经典卧底局。</div></div>`}
+          <button type="submit" class="btn primary full"><span>${mode==='create'?'创建我的房间':'进入游戏房间'}</span><span class="btn-arrow" aria-hidden="true">↗</span></button>
+        </form>
+        <div class="entry-hint">无需注册 · 各自查看秘密情景 · 自动结算投票</div>
+      </div>
+      <div class="mini-info"><span>✦ 私密情景</span><span>♫ 自由选歌</span><span>◎ 实时投票</span></div>
+    </section>
+  </div>`;
 }
 function lobby(){
   const joined=current.players.length;
