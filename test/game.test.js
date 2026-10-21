@@ -126,6 +126,7 @@ test('2-player duel gives four private choices and finishes after two valid gues
     await post('guess',{...host,choice:hv.duelChoices.indexOf(g.prompt)});
     await post('guess',{...host,choice:0},400);
     assert.equal((await state(host)).phase,'duel_guess');
+    assert.equal((await state(other)).players.find(p=>p.id===1).hasVoted,true);
     const wrong=gv.duelChoices.findIndex(x=>x!==h.prompt);
     await post('guess',{...other,choice:wrong});
     const finished=await state(host);
@@ -200,5 +201,40 @@ test('3-player civilians lose when a civilian is eliminated, game stays private'
     assert.equal(end.phase,'finished');
     assert.equal(end.winner,'spy');
     assert.equal(end.reveal,null);
+  }finally{cp.kill();}
+});
+
+
+test('270 unique scenario pairs have no repeated prompt text',()=>{
+  const pairs=require('../scenarios.json');
+  assert.equal(pairs.length,270);
+  const prompts=pairs.flatMap(pair=>[pair.common,pair.spy]);
+  assert.ok(prompts.every(prompt=>prompt.trim().length>0));
+  assert.equal(new Set(prompts).size,540);
+});
+
+test('A single room never repeats a scenario across 270 complete games',async()=>{
+  const cp=await startServer();
+  try {
+    const host=await post('create',{name:'Host',capacity:2});
+    const guest=await post('join',{code:host.code,name:'Guest'});
+    const seen=new Set();
+    for(let i=0;i<270;i++){
+      await post(i===0?'start':'restart',host);
+      const [h,g]=await Promise.all([state(host),state(guest)]);
+      assert.notEqual(h.prompt,g.prompt);
+      const pairKey=[h.prompt,g.prompt].sort().join(' / ');
+      assert.equal(seen.has(pairKey),false,`pair reused in game ${i+1}`);
+      seen.add(pairKey);
+      assert.equal(h.roundsPlayed,i+1);
+      await post('open-vote',host);
+      await post('guess',{...host,choice:0});
+      await post('guess',{...guest,choice:0});
+      assert.equal((await state(host)).phase,'finished');
+    }
+    assert.equal(seen.size,270);
+    const done=await post('restart',host,400);
+    assert.match(done.error,/全部玩过/);
+    assert.equal((await state(host)).roundsPlayed,270);
   }finally{cp.kill();}
 });

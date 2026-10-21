@@ -71,9 +71,11 @@ function shuffled(values) {
   return arr;
 }
 function resetGame(room) {
-  const pairCandidates = PAIRS.map((_, i)=>i).filter(i=>i !== room.lastPairIndex);
+  // A room never sees the same pair twice, including across consecutive games.
+  const pairCandidates = PAIRS.map((_, i)=>i).filter(i=>!room.usedPairIndices.has(i));
+  if(pairCandidates.length===0) failure('本房间的270组情景已全部玩过。为了避免重复，请创建一个新房间。');
   const pairIndex = pairCandidates[crypto.randomInt(pairCandidates.length)];
-  room.lastPairIndex = pairIndex;
+  room.usedPairIndices.add(pairIndex);
   room.pair = PAIRS[pairIndex];
   const spy = room.players[crypto.randomInt(room.players.length)];
   room.spyId = spy.id;
@@ -159,7 +161,7 @@ const server = http.createServer(async (req,res)=>{
       const token=crypto.randomBytes(24).toString('hex');
       const capacity = payload.capacity === undefined ? 5 : Number(payload.capacity);
       if(!Number.isInteger(capacity) || capacity < MIN_PLAYERS || capacity > MAX_PLAYERS)failure('房间人数必须设置为2到10人。');
-      const room={code:id,capacity,players:[{id:1,name,alive:true,token,vote:null,guess:null}],hostToken:token,phase:'lobby',round:0,subscribers:new Set(),pair:null,spyId:null,isDuel:false,duelResult:null,lastPairIndex:-1,roundsPlayed:0,lastResult:null,voteChoices:null,winner:null,revealed:false,updatedAt:Date.now()};
+      const room={code:id,capacity,players:[{id:1,name,alive:true,token,vote:null,guess:null}],hostToken:token,phase:'lobby',round:0,subscribers:new Set(),pair:null,spyId:null,isDuel:false,duelResult:null,usedPairIndices:new Set(),roundsPlayed:0,lastResult:null,voteChoices:null,winner:null,revealed:false,updatedAt:Date.now()};
       rooms.set(id,room);reply(res,200,{code:id,token});return;
     }
     if(url.pathname==='/api/join') {
