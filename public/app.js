@@ -54,7 +54,10 @@ function secretCard(){
   if(!current.me.alive)return `<div class="secret locked"><div class="secret-label">👀 观战模式</div><p class="secret-text">你已被淘汰，请继续欣赏其他玩家的表演。</p></div>`;
   if(!current.prompt)return '';
   if(!exposed)return `<div class="secret locked"><div class="secret-label">🔒 只有你能看到的情景</div><p class="small" style="margin:13px 0 17px">确认旁边没有其他人偷看屏幕，再点开你的情景。</p><button class="btn primary" data-action="show-secret">👁️ 点击查看我的情景</button></div>`;
-  return `<div class="secret"><div class="secret-label">🎭 你的秘密情景 · 请勿外传</div><div class="secret-text">「${esc(current.prompt)}」</div><div class="privacy-msg">选择一首符合这个情景的歌，不要直接念出情景哦。</div><button class="btn ghost" style="margin-top:18px" data-action="hide-secret">🔒 隐藏情景</button></div>`;
+  const spyNote = current.myRole === 'spy' && !current.isDuel
+    ? `<div class="secret-role" role="note"><span class="secret-role-icon">🕵️</span><span><strong>你是本局卧底</strong><small>你的情景与多数人不同。选歌时尽量融入大家，别暴露身份。</small></span></div>`
+    : '';
+  return `<div class="secret${spyNote?' spy-secret':''}"><div class="secret-label">🎭 你的秘密情景 · 请勿外传</div>${spyNote}<div class="secret-text">「${esc(current.prompt)}」</div><div class="privacy-msg">选择一首符合这个情景的歌，不要直接念出情景哦。</div><button class="btn ghost" style="margin-top:18px" data-action="hide-secret">🔒 隐藏情景</button></div>`;
 }
 function copyShare(){const shareUrl=`${location.origin}/?room=${encodeURIComponent(current.code)}`;const fallback=()=>{const input=$('#share-url');if(input){input.focus();input.select();toast('请手动复制邀请链接');}};if(navigator.clipboard?.writeText)navigator.clipboard.writeText(shareUrl).then(()=>toast('邀请链接已复制！')).catch(fallback);else fallback();}
 function renderLanding(){

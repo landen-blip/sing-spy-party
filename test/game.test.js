@@ -33,6 +33,10 @@ test('Five devices receive exclusive prompts, vote privately, auto-advance and k
     assert.deepEqual([...prompts.values()].sort((a,b)=>a-b),[1,4]);
     const spy=states.find(s=>prompts.get(s.prompt)===1).me.id;
     assert.ok(states.every(s=>s.reveal===null && !('spyId' in s)));
+    // Only the spy's own authenticated session may learn the role.
+    assert.deepEqual(states.filter(s=>s.myRole==='spy').map(s=>s.me.id),[spy]);
+    assert.ok(states.filter(s=>s.me.id!==spy).every(s=>!Object.hasOwn(s,'myRole')));
+    assert.ok(states.every(s=>s.players.every(p=>!Object.hasOwn(p,'myRole'))));
     await post('open-vote',host);
     const target=spy;
     for(let i=0;i<5;i++){
@@ -68,6 +72,7 @@ test('Host-only actions, self-vote ban and server-side privacy',async()=>{
     assert.equal(st.phase,'lobby');
     assert.equal(st.prompt,null);
     assert.equal(st.reveal,null);
+    assert.equal(Object.hasOwn(st,'myRole'),false);
     await post('kick',{...h,target:2});
     assert.equal((await state(h)).players.length,1);
     const r=await fetch(`${base}/api/state?code=${h.code}&token=${b.token}`);
@@ -108,6 +113,8 @@ test('2-player duel gives four private choices and finishes after two valid gues
     await post('start',host);
     const [h,g]=await Promise.all([state(host),state(other)]);
     assert.equal(h.isDuel,true);
+    assert.equal(Object.hasOwn(h,'myRole'),false);
+    assert.equal(Object.hasOwn(g,'myRole'),false);
     assert.equal(h.maxPlayers,2);
     assert.equal(h.phase,'sing');
     assert.notEqual(h.prompt,g.prompt);
@@ -164,6 +171,9 @@ test('Room size configurable from 2 to 10, starts early, rejects overflow',async
       assert.ok(sts.every(s=>s.phase==='sing' && s.isDuel===false));
       const freq=new Map();sts.forEach(s=>freq.set(s.prompt,(freq.get(s.prompt)||0)+1));
       assert.deepEqual([...freq.values()].sort((a,b)=>a-b),[1,capacity-1]);
+      const spyState=sts.find(s=>freq.get(s.prompt)===1);
+      assert.deepEqual(sts.filter(s=>s.myRole==='spy').map(s=>s.me.id),[spyState.me.id]);
+      assert.ok(sts.filter(s=>s.me.id!==spyState.me.id).every(s=>!Object.hasOwn(s,'myRole')));
       assert.ok(sts.every(s=>s.reveal===null && !('spyId' in s)));
       await post('open-vote',host);
       const voteStates=await Promise.all(players.map(state));
